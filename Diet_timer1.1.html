@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>腰ストレッチタイマーver1.1</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f0f4f8;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        h1 {
+            font-size: 26px;
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        .status-display {
+            font-size: 36px;
+            font-weight: bold;
+            color: #e67e22;
+            height: 45px;
+            margin-bottom: 10px;
+        }
+
+        /* 砂時計エリアのスタイル */
+        .hourglass-container {
+            margin: 10px 0;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        /* タイマー動作中に砂時計を回転させるアニメーション */
+        @keyframes flip {
+            0% { transform: rotate(0deg); }
+            90% { transform: rotate(0deg); }
+            100% { transform: rotate(180deg); }
+        }
+        .spinning {
+            animation: flip 3s infinite ease-in-out;
+        }
+
+        .time-display {
+            font-size: 90px;
+            font-weight: bold;
+            margin: 10px 0;
+            background: #fff;
+            padding: 10px 50px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+            min-width: 120px;
+        }
+        /* 休憩中の数字は赤、ストレッチ中は青 */
+        .mode-rest { color: #dc3545; }
+        .mode-stretch { color: #0056b3; }
+
+        .set-display {
+            font-size: 24px;
+            font-weight: bold;
+            color: #7f8c8d;
+            margin-bottom: 20px;
+        }
+        .btn-container {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        button {
+            font-size: 22px;
+            padding: 15px 30px;
+            cursor: pointer;
+            border: none;
+            border-radius: 10px;
+            background-color: #007bff;
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+        #stop-btn {
+            background-color: #dc3545;
+            font-size: 20px;
+            padding: 12px 25px;
+        }
+
+        /* 追加：インストール案内用のコンテナスタイル */
+        #installContainer {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            text-align: center;
+        }
+        #installContainer p {
+            margin: 0 0 10px 0;
+            font-weight: bold;
+        }
+        #installContainer button {
+            background-color: #28a745;
+            font-size: 18px;
+            padding: 10px 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>ストレッチタイマー</h1>
+    <div class="status-display" id="status">時間を一回タップ</div>
+    
+    <div class="hourglass-container">
+        <video id="no-sleep-video" playsinline muted loop width="70" height="70" style="background: transparent;"></video>
+    </div>
+
+    <div class="set-display" id="set-count">0 / 3 セット</div>
+
+    <div class="time-display mode-rest" id="display">00</div>
+
+    <div class="btn-container" id="controls">
+        <button onclick="selectTime(15)">15秒</button>
+        <button onclick="selectTime(20)">20秒</button>
+        <button onclick="selectTime(30)">30秒</button>
+    </div>
+
+    <button id="stop-btn" onclick="resetTimer()">リセット</button>
+
+    <div id="installContainer" style="display: none;">
+        <p>スマホのホーム画面にこのアプリを追加できます</p>
+        <button onclick="handleInstallClick()">ホーム画面にアイコンを作成する</button>
+    </div>
+
+    <script>
+        let timerId = null;
+        let timeLeft = 0;
+        let currentSet = 1;
+        
+        // 状態管理: 'rest-left'(左の前休憩), 'stretch-left'(左), 'rest-right'(右の前休憩), 'stretch-right'(右)
+        let phase = 'rest-left'; 
+        let selectedStretchTime = 15;
+
+        const display = document.getElementById('display');
+        const statusDisplay = document.getElementById('status');
+        const setCountDisplay = document.getElementById('set-count');
+        const videoElement = document.getElementById('no-sleep-video');
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // プログラム上で動的に「砂時計がサラサラ落ちて3秒ごとにクルッとひっくり返る動画」を生成する処理
+        // これにより外部の動画ファイルに頼らず、このファイル1つで画面消灯を防ぎます
+        function setupHourglassVideo() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 100;
+            canvas.height = 100;
+            const ctx = canvas.getContext('2d');
+            
+            const stream = canvas.captureStream(10); // 10 fps
+            videoElement.srcObject = stream;
+
+            let frame = 0;
+            setInterval(() => {
+                ctx.clearRect(0, 0, 100, 100);
+                ctx.save();
+                ctx.translate(50, 50);
+                
+                // 砂時計の枠線と砂を描画
+                ctx.strokeStyle = '#2c3e50';
+                ctx.lineWidth = 4;
+                ctx.fillStyle = '#f39c12'; // 砂の色（オレンジ）
+
+                // 上の器
+                ctx.beginPath();
+                ctx.moveTo(-25, -35); ctx.lineTo(25, -35);
+                ctx.lineTo(5, -5); ctx.lineTo(-5, -5);
+                ctx.closePath();
+                ctx.stroke();
+
+                // 下の器
+                ctx.beginPath();
+                ctx.moveTo(-5, 5); ctx.lineTo(5, 5);
+                ctx.lineTo(25, 35); ctx.lineTo(-25, 35);
+                ctx.closePath();
+                ctx.stroke();
+
+                // 落ちる砂のシミュレーション（パラパラ動く線）
+                frame++;
+                if (videoElement.classList.contains('spinning')) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, -5);
+                    ctx.lineTo(0, 30 - (frame % 5));
+                    ctx.strokeStyle = '#e67e22';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }, 100);
+        }
+
+        // 最初の読み込み時に砂時計の準備をする
+        setupHourglassVideo();
+
+        function playBeep(frequency, duration) {
+            try {
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {
+                console.log("Audio error:", e);
+            }
+        }
+
+        function selectTime(seconds) {
+            resetTimer();
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            // タイマー開始と同時に動画の再生を開始し、スマホに「動画視聴中」と認識させる
+            videoElement.play().catch(err => console.log("Video play blocked:", err));
+            videoElement.classList.add('spinning'); // 砂時計を回す
+
+            selectedStretchTime = seconds;
+            currentSet = 1;
+            goToPhase('rest-left');
+        }
+
+        // 各フェーズの切り替え処理
+        function goToPhase(nextPhase) {
+            phase = nextPhase;
+            
+            if (phase === 'rest-left') {
+                timeLeft = 10;
+                statusDisplay.innerText = "休憩中 (つぎ: 左)";
+                statusDisplay.style.color = "#e67e22";
+                display.className = "time-display mode-rest"; // 数字を赤に
+                setCountDisplay.innerText = currentSet + " / 3 セット目";
+            } 
+            else if (phase === 'stretch-left') {
+                timeLeft = selectedStretchTime;
+                statusDisplay.innerText = "ストレッチ (左)";
+                statusDisplay.style.color = "#2ecc71";
+                display.className = "time-display mode-stretch"; // 数字を青に
+            } 
+            else if (phase === 'rest-right') {
+                timeLeft = 10;
+                statusDisplay.innerText = "休憩中 (つぎ: 右)";
+                statusDisplay.style.color = "#e67e22";
+                display.className = "time-display mode-rest"; // 数字を赤に
+            } 
+            else if (phase === 'stretch-right') {
+                timeLeft = selectedStretchTime;
+                statusDisplay.innerText = "ストレッチ (right)";
+                statusDisplay.style.color = "#2ecc71";
+                display.className = "time-display mode-stretch"; // 数字を青に
+            }
+
+            updateDisplay();
+            runCounter();
+        }
+
+        function runCounter() {
+            clearInterval(timerId);
+            timerId = setInterval(() => {
+                timeLeft--;
+                updateDisplay();
+
+                // ラスト3秒の音判定（ピッ・ピッ・ピッ）
+                if (timeLeft === 3 || timeLeft === 2 || timeLeft === 1) {
+                    playBeep(880, 0.1); 
+                } 
+                // 0秒になったときの処理（高いピー：1200Hz, 1.0秒）
+                else if (timeLeft === 0) {
+                    playBeep(1200, 1.0);
+                    clearInterval(timerId);
+
+                    // フェーズの順序移動
+                    if (phase === 'rest-left') {
+                        goToPhase('stretch-left');
+                    } else if (phase === 'stretch-left') {
+                        goToPhase('rest-right');
+                    } else if (phase === 'rest-right') {
+                        goToPhase('stretch-right');
+                    } else if (phase === 'stretch-right') {
+                        // 左右が終わって1セット完了
+                        if (currentSet < 3) {
+                            currentSet++;
+                            goToPhase('rest-left');
+                        } else {
+                            // 3セットすべて終了
+                            statusDisplay.innerText = "お疲れ様でした！";
+                            statusDisplay.style.color = "#0056b3";
+                            setCountDisplay.innerText = "3 / 3 セット完了";
+                            display.className = "time-display mode-stretch";
+                            
+                            // 終了したら動画を止めて省エネにする
+                            videoElement.pause();
+                            videoElement.classList.remove('spinning');
+                        }
+                    }
+                }
+            }, 1000);
+        }
+
+        function resetTimer() {
+            clearInterval(timerId);
+            timeLeft = 0;
+            currentSet = 0;
+            display.innerText = "00";
+            display.className = "time-display mode-rest";
+            statusDisplay.innerText = "時間を一回タップ";
+            statusDisplay.style.color = "#e67e22";
+            setCountDisplay.innerText = "0 / 3 セット";
+            
+            // リセット時も動画を止める
+            videoElement.pause();
+            videoElement.classList.remove('spinning');
+        }
+
+        function updateDisplay() {
+            display.innerText = timeLeft < 10 ? '0' + timeLeft : timeLeft;
+        }
+
+        // -------------------------------------------------------------
+        // 追加：PWAインストール（ホーム画面に追加）関連のJavaScript処理
+        // -------------------------------------------------------------
+        // スマホが「ホーム画面に追加できる状態になった」ことを察知するイベント
+        let deferredPrompt;
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // ブラウザが勝手にデフォルトの怪しいポップアップを出すのを防ぐ
+            e.preventDefault();
+            // 信号を一時的にキープする
+            deferredPrompt = e;
+            
+            // ここで、画面上に「ホーム画面にアイコンを作成する」という案内ボタンを自動表示させます
+            const installBtn = document.getElementById('installContainer');
+            if (installBtn) {
+                installBtn.style.display = 'block'; // 案内を画面に出現させる
+            }
+        });
+
+        // 「アイコン作成ボタン」をユーザーが押した時の処理
+        function handleInstallClick() {
+            if (!deferredPrompt) return;
+            
+            // キープしていたスマホの機能を実行（「追加しますか？」の確認が出る）
+            deferredPrompt.prompt();
+            
+            // ユーザーが「追加」か「キャンセル」どちらを押したか判定
+            deferredPrompt.userChoice.then((choiceResult) => {
+                if (choiceResult.outcome === 'accepted') {
+                    console.log('ユーザーがホーム画面に追加してくれました！');
+                }
+                // 用が済んだので信号をクリア
+                deferredPrompt = null;
+                // ボタンを隠す
+                document.getElementById('installContainer').style.display = 'none';
+            });
+        }
+    </script>
+
+</body>
+</html>
