@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>腰ストレッチタイマーver1.1</title>
+    <title>腰ストレッチタイマー</title>
     <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon.png">
     <style>
         body {
             font-family: 'Helvetica Neue', Arial, sans-serif;
@@ -94,23 +95,28 @@
             padding: 12px 25px;
         }
 
-        /* 追加：インストール案内用のコンテナスタイル */
-        #installContainer {
-            margin-top: 20px;
-            padding: 15px;
+        /* ★追加：案内エリア用の新しいスッキリしたスタイル */
+        #install-area {
+            margin-top: 25px;
+            font-size: 14px;
+            color: #333;
+            background: #fff;
+            padding: 12px 20px;
             border: 1px solid #ccc;
-            background-color: #f9f9f9;
-            border-radius: 8px;
+            border-radius: 10px;
             text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            display: none; /* 条件未達成時は自動で非表示になります */
         }
-        #installContainer p {
-            margin: 0 0 10px 0;
-            font-weight: bold;
-        }
-        #installContainer button {
+        #install-button {
+            margin: 8px 0;
             background-color: #28a745;
-            font-size: 18px;
-            padding: 10px 20px;
+            color: white;
+            padding: 8px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            width: auto;
+            box-shadow: none;
         }
     </style>
 </head>
@@ -135,9 +141,10 @@
 
     <button id="stop-btn" onclick="resetTimer()">リセット</button>
 
-    <div id="installContainer" style="display: none;">
-        <p>スマホのホーム画面にこのアプリを追加できます</p>
-        <button onclick="handleInstallClick()">ホーム画面にアイコンを作成する</button>
+    <div id="install-area">
+        <div style="font-weight: bold;">ホーム画面にこのタイマーのアイコンを作る</div>
+        <button id="install-button" onclick="triggerPwaInstall()">作成</button>
+        <div style="font-size: 12px; color: #666;">使わなくなったらいつでも消せます</div>
     </div>
 
     <script>
@@ -156,7 +163,6 @@
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
         // プログラム上で動的に「砂時計がサラサラ落ちて3秒ごとにクルッとひっくり返る動画」を生成する処理
-        // これにより外部の動画ファイルに頼らず、このファイル1つで画面消灯を防ぎます
         function setupHourglassVideo() {
             const canvas = document.createElement('canvas');
             canvas.width = 100;
@@ -267,7 +273,7 @@
             } 
             else if (phase === 'stretch-right') {
                 timeLeft = selectedStretchTime;
-                statusDisplay.innerText = "ストレッチ (right)";
+                statusDisplay.innerText = "ストレッチ (右)";
                 statusDisplay.style.color = "#2ecc71";
                 display.className = "time-display mode-stretch"; // 数字を青に
             }
@@ -338,90 +344,35 @@
             display.innerText = timeLeft < 10 ? '0' + timeLeft : timeLeft;
         }
 
-        // -------------------------------------------------------------
-        // 追加：PWAインストール（ホーム画面に追加）関連のJavaScript処理
-        // -------------------------------------------------------------
-        // スマホが「ホーム画面に追加できる状態になった」ことを察知するイベント
-        let deferredPrompt;
+        // ★追加：ホーム画面追加（PWA）の制御プログラム★
+        let deferredPrompt = null;
+        const installArea = document.getElementById('install-area');
 
         window.addEventListener('beforeinstallprompt', (e) => {
-            // ブラウザが勝手にデフォルトの怪しいポップアップを出すのを防ぐ
             e.preventDefault();
-            // 信号を一時的にキープする
             deferredPrompt = e;
-            
-            // ここで、画面上に「ホーム画面にアイコンを作成する」という案内ボタンを自動表示させます
-            const installBtn = document.getElementById('installContainer');
-            if (installBtn) {
-                installBtn.style.display = 'block'; // 案内を画面に出現させる
-            }
+            installArea.style.display = 'block'; 
         });
 
-        // 「アイコン作成ボタン」をユーザーが押した時の処理
-        function handleInstallClick() {
+        async function triggerPwaInstall() {
             if (!deferredPrompt) return;
-            
-            // キープしていたスマホの機能を実行（「追加しますか？」の確認が出る）
             deferredPrompt.prompt();
-            
-            // ユーザーが「追加」か「キャンセル」どちらを押したか判定
-            deferredPrompt.userChoice.then((choiceResult) => {
-                if (choiceResult.outcome === 'accepted') {
-                    console.log('ユーザーがホーム画面に追加してくれました！');
-                }
-                // 用が済んだので信号をクリア
-                deferredPrompt = null;
-                // ボタンを隠す
-                document.getElementById('installContainer').style.display = 'none';
+            await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            installArea.style.display = 'none';
+        }
+
+        window.addEventListener('appinstalled', () => {
+            deferredPrompt = null;
+            installArea.style.display = 'none';
+        });
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch((err) => console.log(err));
             });
         }
     </script>
-<!-- PWAインストール案内エリア -->
-<div id="pwa-install-container" style="display: none; text-align: center; margin: 20px auto; padding: 15px; border: 1px solid #ccc; border-radius: 8px; max-width: 400px; background-color: #f9f9f9;">
-    <p style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold; color: #333;">
-        ホーム画面にこのタイマーのアイコンを作る
-    </p>
-    <button id="pwa-install-button" style="padding: 8px 24px; font-size: 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-        作成
-    </button>
-    <p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">
-        使わなくなったらいつでも消せます
-    </p>
-</div>
 
-<script>
-let deferredPrompt;
-const installContainer = document.getElementById('pwa-install-container');
-const installButton = document.getElementById('pwa-install-button');
-
-// ブラウザが「アプリ化できるよ」と検知した瞬間のイベント
-window.addEventListener('beforeinstallprompt', (e) => {
-    // ブラウザ標準の小さな案内を一時的に横取りして止める
-    e.preventDefault();
-    deferredPrompt = e;
-    // かずさんが考えた安心の案内エリアを画面に「ポン」と表示する
-    installContainer.style.display = 'block';
-});
-
-// 「作成」ボタンが押されたときの処理
-installButton.addEventListener('click', async () => {
-    if (!deferredPrompt) return;
-    // スマホやパソコン公式の「本当にアイコンを作りますか？」を呼び出す
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-        console.log('ユーザーがアイコン作成を許可しました');
-    }
-    deferredPrompt = null;
-    // 目的を果たしたので案内エリアをすっきり非表示にする
-    installContainer.style.display = 'none';
-});
-
-// すでにアイコンが作られている場合の処理
-window.addEventListener('appinstalled', () => {
-    installContainer.style.display = 'none';
-    deferredPrompt = null;
-});
-</script>
 </body>
 </html>
