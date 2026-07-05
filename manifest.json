@@ -13,7 +13,7 @@
       "sizes": "512x512"
     }
   ],
-  "start_url": "Diet_timer1.1.html",
+  "start_url": "/diet-timer/index.html",
   "background_color": "#f0f4f8",
   "display": "standalone",
   "theme_color": "#007bff"
