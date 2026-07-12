@@ -1,4 +1,4 @@
-const CACHE_NAME = 'stretch-timer-v1';
+const CACHE_NAME = 'stretch-timer-v2'; // ←ここを v2 に変更
 const ASSETS = [
   './',
   './index.html',
